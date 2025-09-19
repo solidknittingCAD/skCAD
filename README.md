@@ -18,7 +18,7 @@ Press `<` or `>` on the keyboard to move to the previous or next loop.
 Click the settings gear in the top-left corner, and use the checkboxes to show or hide specific layers.
 
 Click `Load` or `Save` to load or save a block assembly as a .body file.  
-For example, try loading a Stanford bunny .body file from [here](https://solidknittingCAD.github.io/skCAD/patterns/).
+For example, try loading a Stanford bunny .body file from [here](https://solidknittingCAD.github.io/skCAD/patterns/stanford-bunny.body).
 
 Click `Save Yarn Path` to export the pattern as an .obj file.
 
