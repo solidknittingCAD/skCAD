@@ -6037,6 +6037,88 @@ function connectBetweenLayers() {
         });
     }
     
+	/* ----- Connect within layers (between adjacent rows). start ----- */
+    // Using the same approach as addLoopStructureForPlusL1Protruding to maintain compatibility with convertToIncreaseCells
+    
+    // Group path items by layer and row
+    const layers = {};
+    path.forEach(item => {
+        if (!item.cell.template.longname.startsWith("knit.")) return;
+        if (!layers[item.layerIndex]) layers[item.layerIndex] = {};
+        if (!layers[item.layerIndex][item.rowIndex]) layers[item.layerIndex][item.rowIndex] = [];
+        layers[item.layerIndex][item.rowIndex].push(item);
+    });
+    
+    // Process each layer
+    Object.keys(layers).forEach(layerIndex => {
+        const layer = layers[layerIndex];
+        const rowIndices = Object.keys(layer).map(Number).sort((a, b) => a - b);
+        
+        // Process each pair of adjacent rows (row i and row i+1)
+        for (let i = 0; i < rowIndices.length - 1; i++) {
+            const currentRowIndex = rowIndices[i];
+            const nextRowIndex = rowIndices[i + 1];
+            
+            const currentRow = layer[currentRowIndex];
+            const nextRow = layer[nextRowIndex];
+            
+            // Group by column (x coordinate)
+            const currentRowByColumn = {};
+            currentRow.forEach(item => {
+                const colKey = Math.round(getCellCenter(item.cell).x * 10) / 10;
+                if (!currentRowByColumn[colKey]) currentRowByColumn[colKey] = [];
+                currentRowByColumn[colKey].push(item);
+            });
+            
+            const nextRowByColumn = {};
+            nextRow.forEach(item => {
+                const colKey = Math.round(getCellCenter(item.cell).x * 10) / 10;
+                if (!nextRowByColumn[colKey]) nextRowByColumn[colKey] = [];
+                nextRowByColumn[colKey].push(item);
+            });
+            
+            // Find common columns
+            const commonColumns = Object.keys(currentRowByColumn).filter(col => nextRowByColumn[col]);
+            
+            commonColumns.forEach(columnKey => {
+                const currentRowCells = currentRowByColumn[columnKey];
+                const nextRowCells = nextRowByColumn[columnKey];
+                
+                // Find cells with unconnected +l1 faces in current row
+                currentRowCells.forEach(currentItem => {
+                    const frontFaceIndex = getFaceIndex(currentItem.cell, "+l1");
+                    if (frontFaceIndex === -1 || currentItem.cell.connections[frontFaceIndex] !== null) return;
+                    
+                    // Find cells with unconnected -l1 faces in next row
+                    nextRowCells.forEach(nextItem => {
+                        const backFaceIndex = getFaceIndex(nextItem.cell, "-l1");
+                        if (backFaceIndex === -1 || nextItem.cell.connections[backFaceIndex] !== null) return;
+                        
+                        // Calculate Y distance in cell units
+                        const currentY = getCellCenter(currentItem.cell).y;
+                        const nextY = getCellCenter(nextItem.cell).y;
+                        const yDistance = Math.abs(currentY - nextY) / getTemplateLength(currentItem.cell.template, 'Y');
+                        const cellDistance = Math.round(yDistance);
+                        
+                        // Need at least 1 cell distance to add loop-next-row
+                        // The number of loop-next-row blocks needed is cellDistance - 1
+                        const loopNextRowCount = cellDistance - 1;
+                        
+                        if (loopNextRowCount > 0) {
+                            // Use the same approach as addLoopStructureForPlusL1Protruding
+                            // Connect from nextItem(-l1) downward to currentItem(+l1)
+                            // This ensures the connection is made to -l1 face of nextItem,
+                            // which doesn't interfere with convertToIncreaseCells
+                            addLoopStructureWithinLayer(currentItem.cell, frontFaceIndex, nextItem.cell, backFaceIndex, loopNextRowCount);
+                            connectionsCount++;
+                        }
+                    });
+                });
+            });
+        }
+    });
+    /* ----- Connect within layers (between adjacent rows). end ----- */
+
     if (connectionsCount > 0) {
         bodyDirty();
         requestRedraw();
@@ -6457,6 +6539,68 @@ function addYarnNextRowForDirectConnection(currentCell, currentFace, nextCell, n
     }
     
     body.cells.push(yarnNextRow);
+}
+
+// Connect within layer (between adjacent rows) using loop-next-row chain
+// Uses the same approach as addLoopStructureForPlusL1Protruding:
+// Connect from nextCell(-l1) downward to currentCell(+l1)
+function addLoopStructureWithinLayer(currentCell, currentFace, nextCell, nextFace, loopNextRowCount) {
+    const loopNextRowTemplate = library.getTemplateByLongname("loop-next-row");
+    
+    if (!loopNextRowTemplate) {
+        console.error("loop-next-row template not found");
+        return;
+    }
+    
+    // Start from nextCell(-l1) and create downward loop-next-row chain toward currentCell(+l1)
+    // nextCell(-l1) -> loop-next-row(+l1) -> loop-next-row(-l1) -> ... -> currentCell(+l1)
+    
+    const loopNextRows = [];
+    let lastConnectedCell = nextCell;
+    let lastConnectedFace = nextFace; // -l1 face
+    
+    for (let i = 0; i < loopNextRowCount; i++) {
+        const loopNextRow = checkTemplateCompatible(lastConnectedCell, lastConnectedFace, loopNextRowTemplate);
+        
+        if (loopNextRow) {
+            // Find connection face (connect +l1 face of loop-next-row to -l1 face)
+            const loopConnectFace = findCompatibleFace(loopNextRowTemplate, lastConnectedCell.template.faces[lastConnectedFace]);
+            if (loopConnectFace !== -1) {
+                lastConnectedCell.connections[lastConnectedFace] = { cell: loopNextRow, face: loopConnectFace };
+                loopNextRow.connections[loopConnectFace] = { cell: lastConnectedCell, face: lastConnectedFace };
+            }
+            
+            loopNextRows.push(loopNextRow);
+            body.cells.push(loopNextRow);
+            
+            // Find -l1 face for next connection
+            const nextFaceForLoop = findInputFace(loopNextRow); // find -l1 face
+            if (nextFaceForLoop !== -1) {
+                lastConnectedCell = loopNextRow;
+                lastConnectedFace = nextFaceForLoop;
+            } else {
+                console.error(`No input face found on loop-next-row ${i + 1}`);
+                break;
+            }
+        } else {
+            console.error(`Failed to create loop-next-row ${i + 1} in addLoopStructureWithinLayer`);
+            break;
+        }
+    }
+    
+    // Connect last loop-next-row to currentCell(+l1)
+    if (loopNextRows.length > 0) {
+        const lastLoop = loopNextRows[loopNextRows.length - 1];
+        
+        // lastConnectedFace points to -l1 face of last loop-next-row
+        // Connect it to currentCell's +l1 face
+        if (sv.canConnectFaces(lastLoop.template.faces[lastConnectedFace], currentCell.template.faces[currentFace])) {
+            currentCell.connections[currentFace] = { cell: lastLoop, face: lastConnectedFace };
+            lastLoop.connections[lastConnectedFace] = { cell: currentCell, face: currentFace };
+        } else {
+            console.error("Failed to connect last loop-next-row to currentCell in addLoopStructureWithinLayer");
+        }
+    }
 }
 
 // Case 1: +y1 face is protruding - add yarn-next-row, then yarn-next-column chain
@@ -7298,153 +7442,6 @@ function connectWithinRows() {
 }
 
 /* ----- functions for connect within rows. end ----- */
-
-
-/* ----- function to connect within columns using loop-next-row. start ----- */
-/**
- * connectWithinColumns()
- * Connect +l1 and -l1 faces within the same column using loop-next-row blocks
- */
-function connectWithinColumns() {
-   const path = window.path || determinePath();
-   if (path.length === 0) return;
-   
-   // Group path items by layer and column
-   const layers = {};
-   path.forEach(item => {
-       if (!layers[item.layerIndex]) layers[item.layerIndex] = {};
-       if (!layers[item.layerIndex][item.columnIndex]) layers[item.layerIndex][item.columnIndex] = [];
-       layers[item.layerIndex][item.columnIndex].push(item);
-   });
-   
-   let connectionsCount = 0;
-   
-   // Process each layer
-   Object.keys(layers).forEach(layerIndex => {
-       const layer = layers[layerIndex];
-       
-       // Process each column within the layer
-       Object.keys(layer).forEach(columnIndex => {
-           const column = layer[columnIndex];
-           
-           // Find cells with unconnected +l1 faces (cellStart)
-           const cellsWithFrontUnconnected = column.filter(item => {
-               const frontFaceIndex = getFaceIndex(item.cell, "+l1");
-               return frontFaceIndex !== -1 && item.cell.connections[frontFaceIndex] === null;
-           });
-           
-           // Find cells with unconnected -l1 faces (cellEnd)
-           const cellsWithBackUnconnected = column.filter(item => {
-               const backFaceIndex = getFaceIndex(item.cell, "-l1");
-               return backFaceIndex !== -1 && item.cell.connections[backFaceIndex] === null;
-           });
-           
-           // Process each +l1 face
-           cellsWithFrontUnconnected.forEach(itemStart => {
-               const cellStart = itemStart.cell;
-               const faceStart = getFaceIndex(cellStart, "+l1");
-               
-               // Find the closest -l1 face in later rows within the same column
-               let closestItemEnd = null;
-               let cellDistance = Infinity;
-
-               cellsWithBackUnconnected.forEach(candidate => {
-                   // Only consider cells in later rows (higher rowIndex)
-                   if (candidate.rowIndex > itemStart.rowIndex) {
-                       const yDistance = calculateCellDistance(itemStart.cell, candidate.cell, 'Y');
-                       if (yDistance < cellDistance) {
-                           const backFaceIndex = getFaceIndex(candidate.cell, "-l1");
-                           if (backFaceIndex !== -1 && candidate.cell.connections[backFaceIndex] === null) {
-                               cellDistance = yDistance;
-                               closestItemEnd = candidate;
-                           }
-                       }
-                   }
-               });
-
-               if (!closestItemEnd) {
-                   return;
-               }
-
-               const cellEnd = closestItemEnd.cell;
-               const faceEnd = getFaceIndex(cellEnd, "-l1");
-                              
-               if (cellDistance > 0) {
-                   // Connect with loop-next-row chain
-                   addLoopNextRow(cellStart, faceStart, cellEnd, faceEnd, cellDistance);
-                   connectionsCount++;
-               }
-           });
-       });
-   });
-      
-   if (connectionsCount > 0) {
-       bodyDirty();
-       requestRedraw();
-   }
-   
-   return;
-}
-
-/**
- * addLoopNextRow()
- * Add a chain of loop-next-row blocks between two cells
- */
-function addLoopNextRow(cellStart, faceStart, cellEnd, faceEnd, cellDistance) {    
-    const loopNextRowTemplate = library.getTemplateByLongname("loop-next-row");
-    
-    if (!loopNextRowTemplate) {
-        console.error("loop-next-row template not found");
-        return;
-    }
-        
-    // Create loop-next-row chain
-    const loopNextRows = [];
-    let lastConnectedCell = cellStart;
-    let lastConnectedFace = faceStart;
-    
-    for (let i = 0; i < cellDistance; i++) {
-        
-        const loopNextRow = checkTemplateCompatible(lastConnectedCell, lastConnectedFace, loopNextRowTemplate);
-        
-        if (loopNextRow) {
-            // Establish connection
-            const loopConnectFace = findCompatibleFace(loopNextRowTemplate, lastConnectedCell.template.faces[lastConnectedFace]);
-            if (loopConnectFace !== -1) {
-                lastConnectedCell.connections[lastConnectedFace] = { cell: loopNextRow, face: loopConnectFace };
-                loopNextRow.connections[loopConnectFace] = { cell: lastConnectedCell, face: lastConnectedFace };
-            }
-            
-            loopNextRows.push(loopNextRow);
-            body.cells.push(loopNextRow);
-            
-            // Prepare for next connection or final connection to cellEnd
-            if (i < cellDistance - 1) {
-                // Find the output face for next loop-next-row
-                const nextFaceForLoop = findOutputFace(loopNextRow);
-                if (nextFaceForLoop !== -1) {
-                    lastConnectedCell = loopNextRow;
-                    lastConnectedFace = nextFaceForLoop;
-                } else {
-                    console.error(`No output face found on loop-next-row ${i + 1}`);
-                    break;
-                }
-            } else {
-                // Last loop-next-row - connect to cellEnd
-                const finalOutputFace = findOutputFace(loopNextRow);
-                if (finalOutputFace !== -1 && sv.canConnectFaces(loopNextRow.template.faces[finalOutputFace], cellEnd.template.faces[faceEnd])) {
-                    cellEnd.connections[faceEnd] = { cell: loopNextRow, face: finalOutputFace };
-                    loopNextRow.connections[finalOutputFace] = { cell: cellEnd, face: faceEnd };
-                } else {
-                    console.error("Failed to connect final loop-next-row to cellEnd");
-                }
-            }
-        }
-    }
-    
-}
-/* ----- function to connect within columns using loop-next-row. end ----- */
-
 
 /* ----- functions for indicate loop. start ----- */
 /**
