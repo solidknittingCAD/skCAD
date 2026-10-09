@@ -36,7 +36,7 @@ export function canConnectFaces(face1, face2) {
 }
 
 // skCAD
-// for null cell. doesn't check sign
+// for unlabeled cell. doesn't check sign
 export function canConnectFacesUnsigned(face1, face2) {
 	function compatibleTypesUnsigned(a,b) {
 		return a.substr(1) === b.substr(1);
@@ -47,9 +47,9 @@ export function canConnectFacesUnsigned(face1, face2) {
 // skCAD
 export function loadLibraryFromURL(url) {
 	return fetch(url)
-		.then(response => response.text()) // textで読み込む
+		.then(response => response.text())
 		.then(text => {
-			const json = JSON.parse(stripComments(text)); // コメントを除去
+			const json = JSON.parse(stripComments(text)); // remove comments
 			let library = new Library();
 			for (const obj of json) {
 				let template = Template.fromData(obj);
@@ -185,8 +185,8 @@ export class Body {
 		}
 
 		const triangles = parseSTL(arrayBuffer);
-		const template = library.getTemplateByLongname("null.right.alt");
-		if (!template) throw new Error("Template 'null.right.alt' not found");
+		const template = library.getTemplateByLongname("unlabeled.right.alt");
+		if (!template) throw new Error("Template 'unlabeled.right.alt' not found");
 
 		const [dx, dy, dz] = voxelSize;
 		let min = [Infinity, Infinity, Infinity];
