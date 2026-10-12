@@ -1,5 +1,5 @@
 # skCAD
-![skCAD pipeline showing blocks converted into a knitting pattern, and the resulting physical Stanford bunny](https://textiles.cs.cmu.edu/publications/2026-skcad/teaser.jpg)
+![skCAD pipeline showing blocks converted into a knitting pattern, and the resulting physical Stanford bunny](teaser.jpg)
 
 A design tool for solid knitting with automatic pattern generation.
 
