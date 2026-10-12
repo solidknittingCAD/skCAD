@@ -1,5 +1,13 @@
 # skCAD
+![skCAD pipeline showing blocks converted into a knitting pattern, and the resulting physical Stanford bunny](teaser.jpg)
+
 A design tool for solid knitting with automatic pattern generation.
+
+* Project page: https://textiles.cs.cmu.edu/publications/2026-skcad/
+* Paper: https://doi.org/10.1145/3772318.3791148
+
+## Video Overview
+https://youtu.be/4rld9zOaUzU
 
 ## Running the code
 Go to https://solidknittingCAD.github.io/skCAD/
@@ -25,3 +33,6 @@ Click `Save Yarn Path` to export the pattern as an .obj file.
 ## Notes
 If you press `<` or `>` immediately after clicking the checkbox, the checkbox will remain selected and the keys won’t work.  
 Click anywhere near the top of the page to deselect it.
+
+## Acknowledgment
+This code is based on https://github.com/textiles-lab/solid-knitting-ui
